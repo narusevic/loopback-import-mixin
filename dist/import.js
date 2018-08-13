@@ -67,8 +67,10 @@ module.exports = function (Model, ctx) {
         },
       ], (err, fileContainer, fileUpload) => {
         if (err) {
-          if (typeof finish === 'function') finish(err, fileContainer);
-          return reject(err);
+          if (typeof finish === 'function') 
+            finish(err, fileContainer);
+          else
+            return reject(err);
         }
         // Launch a fork node process that will handle the import
         childProcess.fork(__dirname + '/processes/import-process.js', [
@@ -83,8 +85,10 @@ module.exports = function (Model, ctx) {
             ImportLog: ImportLogName,
             relations: ctx.relations
           })]);
-        if (typeof finish === 'function') finish(null, fileContainer);
-        resolve(fileContainer);
+        if (typeof finish === 'function') 
+          finish(null, fileContainer);
+        else
+          resolve(fileContainer);
       });
     });
   };
