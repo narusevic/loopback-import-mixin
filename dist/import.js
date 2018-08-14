@@ -35,6 +35,7 @@ module.exports = function (Model, ctx) {
   // Create dynamic statistic method
   Model[ctx.method] = function StatMethod(req, finish) {
     // Set model names
+
     const ImportContainerName = (ctx.models && ctx.models.ImportContainer) || 'ImportContainer';
     const ImportLogName = (ctx.models && ctx.models.ImportLog) || 'ImportLog';
     const ImportContainer = Model.app.models[ImportContainerName];
@@ -54,7 +55,12 @@ module.exports = function (Model, ctx) {
         },
         // Persist process in db and run in fork process
         (fileContainer, next) => {
-          if (fileContainer.files.file[0].type !== 'text/csv') {
+
+          ctx.siteId = fileContainer.fields.siteId;
+          ctx.marketplaceId = fileContainer.fields.marketplaceId;
+          ctx.marketplaceCredentialId = fileContainer.fields.marketplaceCredentialId;
+
+          if (fileContainer.files.file[0].type !== 'text/csv' && fileContainer.files.file[0].type !== 'application/vnd.ms-excel') {
             ImportContainer.destroyContainer(containerName);
             return next(new Error('The file you selected is not csv format'));
           }
@@ -83,7 +89,10 @@ module.exports = function (Model, ctx) {
             file: fileContainer.files.file[0].name,
             ImportContainer: ImportContainerName,
             ImportLog: ImportLogName,
-            relations: ctx.relations
+            relations: ctx.relations,
+            siteId: ctx.siteId,
+            marketplaceId: ctx.marketplaceId,
+            marketplaceCredentialId: ctx.marketplaceCredentialId
           })]);
         if (typeof finish === 'function') 
           finish(null, fileContainer);
@@ -99,6 +108,7 @@ module.exports = function (Model, ctx) {
     const filePath = __dirname + '/../../../' + options.root + '/' + options.container + '/' + options.file;
     const ImportContainer = Model.app.models[options.ImportContainer];
     const ImportLog = Model.app.models[options.ImportLog];
+
     async.waterfall([
       // Get ImportLog
       next => ImportLog.findById(options.fileUploadId, next),
@@ -119,9 +129,54 @@ module.exports = function (Model, ctx) {
             i++;
             (function (i) {
               const obj = { importId: options.file + ':' + i };
+
               for (const key in ctx.map) {
                 let isObj = (typeof ctx.map[key] === 'object');
                 let columnKey = isObj ? ctx.map[key].map : ctx.map[key];
+
+                if (columnKey === 'deliveryDetails') {
+                  let deliveryDetails = {};
+                  
+                  deliveryDetails.company = row["Recipient Company"]
+                  deliveryDetails.firstName = row["Recipient Firstname"]
+                  deliveryDetails.lastName = row["Recipient Lastname"]
+                  deliveryDetails.email = row["Recipient Email"]
+                  deliveryDetails.phone = row["Recipient Phone"]
+                  deliveryDetails.address1 = row["Recipient Address Line1"]
+                  deliveryDetails.address2 = row["Recipient Address Line2"]
+                  deliveryDetails.city = row["Recipient City"]
+                  deliveryDetails.state = row["Recipient State"]
+                  deliveryDetails.country = row["Recipient Country"]
+                  deliveryDetails.postcode = row["Recipient Postcode"]
+
+                  obj[key] = deliveryDetails;
+                  obj.siteId = options.siteId;
+                  obj.marketplaceId = options.marketplaceId;
+                  obj.marketplaceCredentialId = options.marketplaceCredentialId;
+
+                  continue;
+                }
+
+                if (columnKey === 'buyerInfo') {
+                  let buyerInfo = {};
+
+                  buyerInfo.firstName = row["Buyer Firstname"]
+                  buyerInfo.lastName = row["Buyer Lastname"]
+                  buyerInfo.email = row["Buyer Email"]
+                  buyerInfo.phone = row["Buyer Phone"]
+                  buyerInfo.address1 = row["Buyer Address Line1"]
+                  buyerInfo.address2 = row["Buyer Address Line2"]
+                  buyerInfo.city = row["Buyer City"]
+                  buyerInfo.state = row["Buyer State"]
+                  buyerInfo.country = row["Buyer Country"]
+                  buyerInfo.postcode = row["Buyer Postcode"]
+                  
+                  obj[key] = buyerInfo;
+                  obj["billingDetails"] = buyerInfo;
+
+                  continue;
+                }
+
                 if (row[columnKey]) {
                   obj[key] = row[columnKey];
                   if (isObj) {
@@ -215,7 +270,15 @@ module.exports = function (Model, ctx) {
                     };
                     // Create Relation
                     createRelation = function cr(expectedRelation, existingRelation, nextParallel) {
+
                       const createObj = {};
+
+                      if (expectedRelation === 'items') {
+                        createObj.siteId = options.siteId;
+                        createObj.marketplaceId = options.marketplaceId;
+                        createObj.marketplaceCredentialId = options.marketplaceCredentialId;
+                      }
+
                       for (const key in ctx.relations[expectedRelation].map) {
                         if (typeof ctx.relations[expectedRelation].map[key] === 'string' && row[ctx.relations[expectedRelation].map[key]]) {
                           createObj[key] = row[ctx.relations[expectedRelation].map[key]];
