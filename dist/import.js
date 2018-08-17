@@ -123,56 +123,84 @@ module.exports = function (Model, ctx) {
         // This line opens the file as a readable stream
         let series = [];
         let i = 1; // Starts in one to discount column names
+        let lastParentId = -1;
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', row => {
             i++;
             (function (i) {
               const obj = { importId: options.file + ':' + i };
+              var modelName = ctx.Model.definition.ModelDefinition.name;
+
+              obj.siteId = options.siteId;
+
+
+              if (modelName === 'SystemProduct') {
+                if (row["Parent/Child"] === 'Parent' || row["Parent/Child"] === 'parent') {
+                  
+                } else if (row["Parent/Child"] === 'Child' || row["Parent/Child"] === 'child') {
+                  obj.parentId = lastParentId;
+                }
+
+                let aspects = {}
+
+                if (row["Variation 1 label"] && row["Variation 1 value"]) {
+                  aspects[row["Variation 1 label"]] = row["Variation 1 value"];
+                }
+
+                if (row["Variation 2 label"] && row["Variation 2 value"]) {
+                  aspects[row["Variation 2 label"]] = row["Variation 2 value"];
+                }
+
+                if (row["Variation 3 label"] && row["Variation 3 value"]) {
+                  aspects[row["Variation 3 label"]] = row["Variation 3 value"];
+                }
+              }
+
+              if (modelName === 'MarketplaceOrder') {
+                let deliveryDetails = {};
+                  
+                deliveryDetails.company = row["Recipient Company"]
+                deliveryDetails.firstName = row["Recipient Firstname"]
+                deliveryDetails.lastName = row["Recipient Lastname"]
+                deliveryDetails.email = row["Recipient Email"]
+                deliveryDetails.phone = row["Recipient Phone"]
+                deliveryDetails.address1 = row["Recipient Address Line1"]
+                deliveryDetails.address2 = row["Recipient Address Line2"]
+                deliveryDetails.city = row["Recipient City"]
+                deliveryDetails.state = row["Recipient State"]
+                deliveryDetails.country = row["Recipient Country"]
+                deliveryDetails.postcode = row["Recipient Postcode"]
+
+                obj.deliveryDetails = deliveryDetails;
+                obj.marketplaceId = options.marketplaceId;
+                obj.marketplaceCredentialId = options.marketplaceCredentialId;
+
+                let buyerInfo = {};
+
+                buyerInfo.firstName = row["Buyer Firstname"]
+                buyerInfo.lastName = row["Buyer Lastname"]
+                buyerInfo.email = row["Buyer Email"]
+                buyerInfo.phone = row["Buyer Phone"]
+                buyerInfo.address1 = row["Buyer Address Line1"]
+                buyerInfo.address2 = row["Buyer Address Line2"]
+                buyerInfo.city = row["Buyer City"]
+                buyerInfo.state = row["Buyer State"]
+                buyerInfo.country = row["Buyer Country"]
+                buyerInfo.postcode = row["Buyer Postcode"]
+                
+                obj.buyerInfo = buyerInfo;
+                obj["billingDetails"] = buyerInfo;
+              }
 
               for (const key in ctx.map) {
                 let isObj = (typeof ctx.map[key] === 'object');
                 let columnKey = isObj ? ctx.map[key].map : ctx.map[key];
 
-                if (columnKey === 'deliveryDetails') {
-                  let deliveryDetails = {};
-                  
-                  deliveryDetails.company = row["Recipient Company"]
-                  deliveryDetails.firstName = row["Recipient Firstname"]
-                  deliveryDetails.lastName = row["Recipient Lastname"]
-                  deliveryDetails.email = row["Recipient Email"]
-                  deliveryDetails.phone = row["Recipient Phone"]
-                  deliveryDetails.address1 = row["Recipient Address Line1"]
-                  deliveryDetails.address2 = row["Recipient Address Line2"]
-                  deliveryDetails.city = row["Recipient City"]
-                  deliveryDetails.state = row["Recipient State"]
-                  deliveryDetails.country = row["Recipient Country"]
-                  deliveryDetails.postcode = row["Recipient Postcode"]
-
-                  obj[key] = deliveryDetails;
-                  obj.siteId = options.siteId;
-                  obj.marketplaceId = options.marketplaceId;
-                  obj.marketplaceCredentialId = options.marketplaceCredentialId;
-
-                  continue;
-                }
-
-                if (columnKey === 'buyerInfo') {
-                  let buyerInfo = {};
-
-                  buyerInfo.firstName = row["Buyer Firstname"]
-                  buyerInfo.lastName = row["Buyer Lastname"]
-                  buyerInfo.email = row["Buyer Email"]
-                  buyerInfo.phone = row["Buyer Phone"]
-                  buyerInfo.address1 = row["Buyer Address Line1"]
-                  buyerInfo.address2 = row["Buyer Address Line2"]
-                  buyerInfo.city = row["Buyer City"]
-                  buyerInfo.state = row["Buyer State"]
-                  buyerInfo.country = row["Buyer Country"]
-                  buyerInfo.postcode = row["Buyer Postcode"]
-                  
-                  obj[key] = buyerInfo;
-                  obj["billingDetails"] = buyerInfo;
+                if (key === 'paymentStatus') {
+                  if (row["Paid"] === "yes" || row["Paid"] === "Yes" || row["Paid"] === "true" || row["Paid"] === "True") {
+                    obj.isPaid = 'paid'
+                  }
 
                   continue;
                 }
@@ -229,6 +257,11 @@ module.exports = function (Model, ctx) {
                   },
                   // Work on relations
                   (instance, nextFall) => {
+
+                    if (row["Parent/Child"] === 'Parent' || row["Parent/Child"] === 'parent') {
+                      lastParentId = instance.id;
+                    }
+
                     // Finall parallel process container
                     const parallel = [];
                     let setupRelation;
@@ -272,9 +305,9 @@ module.exports = function (Model, ctx) {
                     createRelation = function cr(expectedRelation, existingRelation, nextParallel) {
 
                       const createObj = {};
+                      createObj.siteId = options.siteId;
 
                       if (expectedRelation === 'items') {
-                        createObj.siteId = options.siteId;
                         createObj.marketplaceId = options.marketplaceId;
                         createObj.marketplaceCredentialId = options.marketplaceCredentialId;
                       }
