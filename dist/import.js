@@ -124,23 +124,18 @@ module.exports = function (Model, ctx) {
         let series = [];
         let i = 1; // Starts in one to discount column names
         let lastParentId = -1;
+        let lastSystemProductId = -1;
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', row => {
             i++;
             (function (i) {
               const obj = { importId: options.file + ':' + i };
-              var modelName = ctx.Model.definition.ModelDefinition.name;
+              var modelName = ctx.Model.definition.name;
 
               obj.siteId = options.siteId;
 
-
               if (modelName === 'SystemProduct') {
-                if (row["Parent/Child"] === 'Parent' || row["Parent/Child"] === 'parent') {
-                  
-                } else if (row["Parent/Child"] === 'Child' || row["Parent/Child"] === 'child') {
-                  obj.parentId = lastParentId;
-                }
 
                 let aspects = {}
 
@@ -155,6 +150,13 @@ module.exports = function (Model, ctx) {
                 if (row["Variation 3 label"] && row["Variation 3 value"]) {
                   aspects[row["Variation 3 label"]] = row["Variation 3 value"];
                 }
+
+                let weightUnits = [{name: 'kg', id: 1}, {name: 'oz', id: 2}, {name: 'lb', id: 3}, {name: 'g', id: 4}]
+                let weightUnit = weightUnits.find(wu => wu.name === row["Weight Unit"]);
+
+                obj.weightUnit = weightUnit ? weightUnit.id : null;
+
+                obj.aspects = aspects;
               }
 
               if (modelName === 'MarketplaceOrder') {
@@ -251,15 +253,14 @@ module.exports = function (Model, ctx) {
                     }
                   },
                   // Otherwise we create a new instance
-                  (instance, nextFall) => {
+                  (instance, nextFall) => {                    
                     if (instance) return nextFall(null, instance);
                     Model.create(obj, nextFall);
                   },
                   // Work on relations
-                  (instance, nextFall) => {
-
+                  (instance, nextFall) => {  
                     if (row["Parent/Child"] === 'Parent' || row["Parent/Child"] === 'parent') {
-                      lastParentId = instance.id;
+                      lastSystemProductId = instance.id;
                     }
 
                     // Finall parallel process container
@@ -312,6 +313,34 @@ module.exports = function (Model, ctx) {
                         createObj.marketplaceCredentialId = options.marketplaceCredentialId;
                       }
 
+                      if (expectedRelation === 'marketplaceProducts') {
+                        if (row["Parent/Child"] === 'Child' || row["Parent/Child"] === 'child') {
+                          createObj.parentId = lastParentId;
+                          createObj.systemProductId = lastSystemProductId;
+                        }
+
+                        let aspects = {};
+
+                        if (row["Variation 1 label"] && row["Variation 1 value"]) {
+                          aspects[row["Variation 1 label"]] = row["Variation 1 value"];
+                        }
+
+                        if (row["Variation 2 label"] && row["Variation 2 value"]) {
+                          aspects[row["Variation 2 label"]] = row["Variation 2 value"];
+                        }
+
+                        if (row["Variation 3 label"] && row["Variation 3 value"]) {
+                          aspects[row["Variation 3 label"]] = row["Variation 3 value"];
+                        }
+
+                        let weightUnits = [{name: 'kg', id: 1}, {name: 'oz', id: 2}, {name: 'lb', id: 3}, {name: 'g', id: 4}]
+                        let weightUnit = weightUnits.find(wu => wu.name === row["Weight Unit"]);
+        
+                        obj.weightUnit = weightUnit ? weightUnit.id : null;
+
+                        createObj.aspects = aspects;
+                      }
+
                       for (const key in ctx.relations[expectedRelation].map) {
                         if (typeof ctx.relations[expectedRelation].map[key] === 'string' && row[ctx.relations[expectedRelation].map[key]]) {
                           createObj[key] = row[ctx.relations[expectedRelation].map[key]];
@@ -346,9 +375,17 @@ module.exports = function (Model, ctx) {
                           });
                           relatedInstance.save(nextParallel);
                         } else {
-                          instance[expectedRelation].create(createObj, nextParallel);
+                          instance[expectedRelation].create(createObj, (err, relInstance) => {
+                            if (err) return nextParallel(err);
+
+                            if (row["Parent/Child"] === 'Parent' || row["Parent/Child"] === 'parent') {
+                              lastParentId = relInstance.id;
+                            }
+
+                            return nextParallel(null, instance);
+                          });
                         }
-                      });
+                      }); 
                     };
                     // Link Relations
                     linkRelation = function lr(expectedRelation, existingRelation, nextParallel) {
@@ -419,8 +456,8 @@ module.exports = function (Model, ctx) {
                         setupRelation(ers);
                       }
                     }
-                    // Run the relations process in parallel
-                    async.parallel(parallel, nextFall);
+                    // Run the relations process in parallel // NO
+                    async.series(parallel, nextFall);
                   },
                   // If there are any error in this serie we log it into the errors array of objects
                 ], err => {
